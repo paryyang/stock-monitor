@@ -186,15 +186,22 @@ async function safeFetch(url,opts){
   return r.json();
 }
 
-async function askClaude(sys,usr){
-  const d=await safeFetch('/api/quotes?market=claude',{
-    method:'POST',
-    headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:1500,system:sys,messages:[{role:'user',content:usr}]})
+async function askClaude(system, user) {
+  const res = await fetch('/api/quotes?market=claude', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 1500,
+      system: system,
+      messages: [{ role: 'user', content: user }],
+    }),
   });
-  if(d.error)throw new Error(d.error.message||JSON.stringify(d.error));
-  return d.content.filter(b=>b.type==='text').map(b=>b.text).join('\n');
+  if (!res.ok) throw new Error('HTTP ' + res.status + ' /api/quotes?market=claude');
+  const d = await res.json();
+  return d.content.filter(b => b.type === 'text').map(b => b.text).join('\n');
 }
+
 
 function parseStock(list,code,isOTC){
   const ck=isOTC&&list[0]&&list[0].SecuritiesCompanyCode!==undefined?'SecuritiesCompanyCode':'Code';
