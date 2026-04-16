@@ -10,13 +10,23 @@ export default async function handler(req, res) {
   if (market === 'claude') {
     try {
       const apiKey = process.env.ANTHROPIC_API_KEY || '';
-      const body = typeof req.body === 'string' ? JSON.parse(req.body) : (req.body || {});
+      
+      // 手動讀取 body stream
+      const rawBody = await new Promise((resolve) => {
+        let data = '';
+        req.on('data', chunk => { data += chunk; });
+        req.on('end', () => resolve(data));
+        req.on('error', () => resolve(''));
+      });
+      
+      const body = rawBody ? JSON.parse(rawBody) : {};
       const payload = {
         model: 'claude-haiku-4-5-20251001',
         max_tokens: body.max_tokens || 1000,
         system: body.system || '',
         messages: body.messages || []
       };
+      
       const r = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
         headers: {
