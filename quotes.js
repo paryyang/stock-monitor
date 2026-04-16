@@ -10,6 +10,7 @@ export default async function handler(req, res) {
   if (market === 'claude') {
     try {
       const body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
+      body.model = 'claude-opus-4-5';
       const r = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
         headers: {
