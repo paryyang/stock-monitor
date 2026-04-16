@@ -3,13 +3,13 @@ export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
   res.setHeader('Cache-Control', 's-maxage=60');
-  
   if (req.method === 'OPTIONS') { res.status(200).end(); return; }
 
   const { market } = req.query;
 
   if (market === 'claude') {
     try {
+      const body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
       const r = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
         headers: {
@@ -17,10 +17,11 @@ export default async function handler(req, res) {
           'x-api-key': process.env.ANTHROPIC_API_KEY || '',
           'anthropic-version': '2023-06-01'
         },
-        body: JSON.stringify(req.body),
+        body: JSON.stringify(body),
       });
-      res.status(r.status).json(await r.json());
-    } catch(e) { res.status(500).json({ error: e.message }); }
+      const data = await r.json();
+      res.status(r.status).json(data);
+    } catch(e) { res.status(500).json({ error: { message: e.message } }); }
     return;
   }
 
