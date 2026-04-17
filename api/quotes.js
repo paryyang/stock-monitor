@@ -1,6 +1,6 @@
-export const config = { api: { bodyParser: true } };
+// api/quotes.js - Vercel Serverless Function (CommonJS style)
 
-export default async function handler(req, res) {
+module.exports = async function handler(req, res) {
 res.setHeader(‘Access-Control-Allow-Origin’, ‘*’);
 res.setHeader(‘Access-Control-Allow-Methods’, ‘GET, POST, OPTIONS’);
 res.setHeader(‘Access-Control-Allow-Headers’, ‘Content-Type’);
@@ -25,42 +25,51 @@ res.status(200).json({ ok: true, …(await r.json()) });
 return;
 }
 
-// ── 盤中即時 (mis.twse) ──────────────────────────────────────
+// ── 盤中即時 + fallback 盤後 ─────────────────────────────────
 if (market === ‘realtime’) {
-const codes = ‘tse_3131.tw|tse_6515.tw|tse_6187.tw|tse_00631L.tw’;
+// 先試盤中 mis.twse
 try {
+const codes = ‘tse_3131.tw|tse_6515.tw|tse_6187.tw|tse_00631L.tw’;
 const r = await fetch(
-`https://mis.twse.com.tw/stock/api/getStockInfo.jsp?ex_ch=${codes}&json=1&delay=0`,
+‘https://mis.twse.com.tw/stock/api/getStockInfo.jsp?ex_ch=’ + codes + ‘&json=1&delay=0’,
 { headers: { ‘Accept’: ‘application/json’, ‘Referer’: ‘https://mis.twse.com.tw/’ } }
 );
-if (!r.ok) throw new Error(’mis upstream ’ + r.status);
+if (r.ok) {
 const data = await r.json();
-if (!data.msgArray || data.msgArray.length === 0) throw new Error(‘empty’);
+if (data.msgArray && data.msgArray.length > 0) {
 res.setHeader(‘Cache-Control’, ‘s-maxage=15’);
 res.status(200).json({ ok: true, source: ‘realtime’, msgArray: data.msgArray });
-} catch (e) {
-// mis 失敗時 fallback 到盤後 API
-try {
-const r2 = await fetch(‘https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL’, { headers: { ‘Accept’: ‘application/json’ } });
-if (!r2.ok) throw new Error(’twse upstream ’ + r2.status);
-const data2 = await r2.json();
-res.setHeader(‘Cache-Control’, ‘s-maxage=60’);
-res.status(200).json({ ok: true, source: ‘eod’, data: data2 });
-} catch (e2) {
-res.status(200).json({ ok: false, source: ‘none’, msgArray: [], data: [], error: e.message + ’ / ’ + e2.message });
+return;
 }
+}
+} catch (e) { /* fall through */ }
+
+```
+// fallback: 盤後 TWSE OpenAPI
+try {
+  const r2 = await fetch('https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL',
+    { headers: { 'Accept': 'application/json' } });
+  if (!r2.ok) throw new Error('twse ' + r2.status);
+  const data2 = await r2.json();
+  res.setHeader('Cache-Control', 's-maxage=60');
+  res.status(200).json({ ok: true, source: 'eod', data: data2 });
+} catch (e2) {
+  res.status(200).json({ ok: false, source: 'none', msgArray: [], data: [], error: e2.message });
 }
 return;
+```
+
 }
 
 // ── 盤後收盤價 TWSE ──────────────────────────────────────────
 try {
 res.setHeader(‘Cache-Control’, ‘s-maxage=60, stale-while-revalidate=300’);
-const r = await fetch(‘https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL’, { headers: { ‘Accept’: ‘application/json’ } });
+const r = await fetch(‘https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL’,
+{ headers: { ‘Accept’: ‘application/json’ } });
 if (!r.ok) throw new Error(’upstream ’ + r.status);
 const data = await r.json();
 res.status(200).json({ ok: true, data, source: ‘twse’, ts: new Date().toISOString() });
 } catch (e) {
 res.status(500).json({ ok: false, error: e.message });
 }
-}
+};
