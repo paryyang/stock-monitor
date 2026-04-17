@@ -4,7 +4,6 @@ export default async function handler(req, res) {
 res.setHeader(‘Access-Control-Allow-Origin’, ‘*’);
 res.setHeader(‘Access-Control-Allow-Methods’, ‘GET, POST, OPTIONS’);
 res.setHeader(‘Access-Control-Allow-Headers’, ‘Content-Type’);
-
 if (req.method === ‘OPTIONS’) { res.status(200).end(); return; }
 
 const { market } = req.query;
@@ -15,50 +14,52 @@ try {
 const apiKey = process.env.ANTHROPIC_API_KEY;
 if (!apiKey) { res.status(500).json({ ok: false, error: ‘ANTHROPIC_API_KEY not set’ }); return; }
 const body = req.body || {};
-const response = await fetch(‘https://api.anthropic.com/v1/messages’, {
+const r = await fetch(‘https://api.anthropic.com/v1/messages’, {
 method: ‘POST’,
 headers: { ‘Content-Type’: ‘application/json’, ‘x-api-key’: apiKey, ‘anthropic-version’: ‘2023-06-01’ },
-body: JSON.stringify({
-model: body.model || ‘claude-haiku-4-5-20251001’,
-max_tokens: body.max_tokens || 1500,
-system: body.system || ‘’,
-messages: body.messages || []
-})
+body: JSON.stringify({ model: body.model || ‘claude-haiku-4-5-20251001’, max_tokens: body.max_tokens || 1500, system: body.system || ‘’, messages: body.messages || [] })
 });
-if (!response.ok) { const t = await response.text(); res.status(response.status).json({ ok: false, error: t }); return; }
-const data = await response.json();
-res.status(200).json({ ok: true, …data });
+if (!r.ok) { const t = await r.text(); res.status(r.status).json({ ok: false, error: t }); return; }
+res.status(200).json({ ok: true, …(await r.json()) });
 } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
 return;
 }
 
-// ── 盤中即時報價 (mis.twse.com.tw) ───────────────────────────
+// ── 盤中即時 (mis.twse) ──────────────────────────────────────
 if (market === ‘realtime’) {
-try {
-// 查詢我們需要的4檔股票
 const codes = ‘tse_3131.tw|tse_6515.tw|tse_6187.tw|tse_00631L.tw’;
-const url = `https://mis.twse.com.tw/stock/api/getStockInfo.jsp?ex_ch=${codes}&json=1&delay=0`;
-const response = await fetch(url, { headers: { ‘Accept’: ‘application/json’ } });
-if (!response.ok) throw new Error(’upstream ’ + response.status);
-const data = await response.json();
-res.setHeader(‘Cache-Control’, ‘s-maxage=15, stale-while-revalidate=30’);
-res.status(200).json({ ok: true, …data });
+try {
+const r = await fetch(
+`https://mis.twse.com.tw/stock/api/getStockInfo.jsp?ex_ch=${codes}&json=1&delay=0`,
+{ headers: { ‘Accept’: ‘application/json’, ‘Referer’: ‘https://mis.twse.com.tw/’ } }
+);
+if (!r.ok) throw new Error(’mis upstream ’ + r.status);
+const data = await r.json();
+if (!data.msgArray || data.msgArray.length === 0) throw new Error(‘empty’);
+res.setHeader(‘Cache-Control’, ‘s-maxage=15’);
+res.status(200).json({ ok: true, source: ‘realtime’, msgArray: data.msgArray });
 } catch (e) {
-res.status(200).json({ ok: false, msgArray: [], error: e.message });
+// mis 失敗時 fallback 到盤後 API
+try {
+const r2 = await fetch(‘https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL’, { headers: { ‘Accept’: ‘application/json’ } });
+if (!r2.ok) throw new Error(’twse upstream ’ + r2.status);
+const data2 = await r2.json();
+res.setHeader(‘Cache-Control’, ‘s-maxage=60’);
+res.status(200).json({ ok: true, source: ‘eod’, data: data2 });
+} catch (e2) {
+res.status(200).json({ ok: false, source: ‘none’, msgArray: [], data: [], error: e.message + ’ / ’ + e2.message });
+}
 }
 return;
 }
 
-// ── 盤後收盤價 TWSE / TPEx ────────────────────────────────────
+// ── 盤後收盤價 TWSE ──────────────────────────────────────────
 try {
 res.setHeader(‘Cache-Control’, ‘s-maxage=60, stale-while-revalidate=300’);
-const url = market === ‘tpex’
-? ‘https://www.tpex.org.tw/openapi/v1/tpex_mainboard_daily_close_quotes’
-: ‘https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL’;
-const response = await fetch(url, { headers: { ‘Accept’: ‘application/json’ } });
-if (!response.ok) throw new Error(’upstream ’ + response.status);
-const data = await response.json();
-res.status(200).json({ ok: true, data, source: market || ‘twse’, ts: new Date().toISOString() });
+const r = await fetch(‘https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL’, { headers: { ‘Accept’: ‘application/json’ } });
+if (!r.ok) throw new Error(’upstream ’ + r.status);
+const data = await r.json();
+res.status(200).json({ ok: true, data, source: ‘twse’, ts: new Date().toISOString() });
 } catch (e) {
 res.status(500).json({ ok: false, error: e.message });
 }
