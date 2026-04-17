@@ -83,7 +83,7 @@ body{font-family:'Noto Sans TC',sans-serif;background:var(--bg);color:var(--text
 <body>
 <div class="header">
   <div class="header-top">
-    <div><div class="logo">智策監控</div><div class="logo-sub" id="dateLabel">載入中...</div></div>
+    <div><div class="logo">智策監控</div><div class="logo-sub" id="dateLabel">v2.1 載入中...</div></div>
     <div class="live-badge"><div class="live-dot" id="liveDot"></div><span id="liveLabel">LIVE</span></div>
   </div>
 </div>
@@ -270,16 +270,12 @@ setStatus(‘loading’,‘更新’);
 showErr(’’);
 
 try{
-const [twseRes,tpexRes]=await Promise.all([
-safeFetch(’/api/quotes?market=twse’),
-safeFetch(’/api/quotes?market=tpex’)
-]);
+const twseRes=await safeFetch(’/api/quotes?market=twse’);
 const twse=twseRes.data||[];
-const tpex=tpexRes.data||[];
 
 ```
 PORTFOLIO.forEach(s=>{
-  const d=parseStock(s.market==='tpex'?tpex:twse,s.code,s.market==='tpex');
+  const d=parseStock(twse,s.code,false);
   if(d)prices[s.code]=d;
 });
 
