@@ -197,20 +197,34 @@ if(d.error)throw new Error(d.error.message||JSON.stringify(d.error));
 return d.content.filter(b=>b.type===‘text’).map(b=>b.text).join(’\n’);
 }
 
-function parseStock(list,code,isOTC){
-const ck=isOTC&&list[0]&&list[0].SecuritiesCompanyCode!==undefined?‘SecuritiesCompanyCode’:‘Code’;
-const row=list.find(r=>(r[ck]||’’).trim()===code);
+// 盤後 API 解析 (STOCK_DAY_ALL)
+function parseStockEOD(list,code){
+const row=list.find(r=>(r[‘Code’]||’’).trim()===code);
 if(!row)return null;
-const cl=isOTC?(row.Close!==undefined?‘Close’:‘ClosingPrice’):‘ClosingPrice’;
-const hk=isOTC?(row.High!==undefined?‘High’:‘HighestPrice’):‘HighestPrice’;
-const lk=isOTC?(row.Low!==undefined?‘Low’:‘LowestPrice’):‘LowestPrice’;
-const p=parseFloat((row[cl]||’’).replace(/,/g,’’));
+const p=parseFloat((row[‘ClosingPrice’]||’’).replace(/,/g,’’));
 if(isNaN(p)||p<=0)return null;
-const c=parseFloat((row.Change||‘0’).replace(/,/g,’’));
+const c=parseFloat((row[‘Change’]||‘0’).replace(/,/g,’’));
 const prev=p-c,pct=prev>0?+((c/prev)*100).toFixed(2):0;
 return{price:p,prevClose:+prev.toFixed(2),change:pct,
-dayHigh:parseFloat((row[hk]||‘0’).replace(/,/g,’’))||p,
-dayLow:parseFloat((row[lk]||‘0’).replace(/,/g,’’))||p};
+dayHigh:parseFloat((row[‘HighestPrice’]||‘0’).replace(/,/g,’’))||p,
+dayLow:parseFloat((row[‘LowestPrice’]||‘0’).replace(/,/g,’’))||p};
+}
+
+// 盤中 API 解析 (getStockInfo - msgArray)
+function parseStockRT(msgArray,code){
+const row=msgArray.find(r=>(r[‘c’]||’’).trim()===code);
+if(!row)return null;
+const p=parseFloat(row[‘z’]||row[‘y’]||‘0’); // z=當盤成交價, y=昨收
+if(isNaN(p)||p<=0)return null;
+const y=parseFloat(row[‘y’]||‘0’); // 昨收
+const pct=y>0?+(((p-y)/y)*100).toFixed(2):0;
+return{price:p,prevClose:y,change:pct,
+dayHigh:parseFloat(row[‘h’]||‘0’)||p,
+dayLow:parseFloat(row[‘l’]||‘0’)||p};
+}
+
+function parseStock(list,code){
+return parseStockEOD(list,code);
 }
 
 function renderCard(s,d){
@@ -270,22 +284,34 @@ setStatus(‘loading’,‘更新’);
 showErr(’’);
 
 try{
-const twseRes=await safeFetch(’/api/quotes?market=twse’);
-const twse=twseRes.data||[];
+// 先嘗試盤中即時 API
+const rtRes=await safeFetch(’/api/quotes?market=realtime’);
+let dateStr=‘即時報價’;
 
 ```
-PORTFOLIO.forEach(s=>{
-  const d=parseStock(twse,s.code,false);
-  if(d)prices[s.code]=d;
-});
-
-const sm=twse[0];
-if(sm&&sm.Date){
-  const y=parseInt(sm.Date.slice(0,3))+1911;
-  document.getElementById('dateLabel').textContent=y+'/'+sm.Date.slice(3,5)+'/'+sm.Date.slice(5,7)+' 收盤價';
+if(rtRes.ok && rtRes.msgArray && rtRes.msgArray.length>0){
+  // 盤中模式
+  const msg=rtRes.msgArray;
+  PORTFOLIO.forEach(s=>{
+    const d=parseStockRT(msg,s.code);
+    if(d)prices[s.code]=d;
+  });
+  dateStr='盤中即時';
 } else {
-  document.getElementById('dateLabel').textContent='最新資料';
+  // 盤後模式（收盤或假日）
+  const twseRes=await safeFetch('/api/quotes?market=twse');
+  const twse=twseRes.data||[];
+  PORTFOLIO.forEach(s=>{
+    const d=parseStockEOD(twse,s.code);
+    if(d)prices[s.code]=d;
+  });
+  const sm=twse[0];
+  if(sm&&sm.Date){
+    const y=parseInt(sm.Date.slice(0,3))+1911;
+    dateStr=y+'/'+sm.Date.slice(3,5)+'/'+sm.Date.slice(5,7)+' 收盤價';
+  }
 }
+document.getElementById('dateLabel').textContent=dateStr;
 
 document.getElementById('cathayCards').innerHTML=
   PORTFOLIO.filter(s=>CATHAY.includes(s.code)).map(s=>renderCard(s,prices[s.code])).join('');
