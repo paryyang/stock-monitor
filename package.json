@@ -2,9 +2,11 @@
   "name": "stock-monitor",
   "version": "1.0.0",
   "private": true,
+  "engines": {
+    "node": ">=18"
+  },
   "scripts": {
-    "dev": "vercel dev",
-    "build": "echo 'static site, no build needed'"
+    "build": "echo ok"
   },
   "dependencies": {}
 }
