@@ -1,4 +1,5 @@
 <!DOCTYPE html>
+
 <html lang="zh-TW">
 <head>
 <meta charset="UTF-8">
@@ -167,221 +168,219 @@ let prices={};
 let busy=false;
 
 function setStatus(state,msg){
-  const dot=document.getElementById('liveDot');
-  const lbl=document.getElementById('liveLabel');
-  const colors={live:'var(--green)',loading:'var(--yellow)',error:'var(--red)'};
-  dot.style.background=colors[state]||colors.live;
-  lbl.textContent=msg||state.toUpperCase();
+const dot=document.getElementById(‘liveDot’);
+const lbl=document.getElementById(‘liveLabel’);
+const colors={live:‘var(–green)’,loading:‘var(–yellow)’,error:‘var(–red)’};
+dot.style.background=colors[state]||colors.live;
+lbl.textContent=msg||state.toUpperCase();
 }
 
 function showErr(msg){
-  const b=document.getElementById('errBox');
-  if(msg){b.textContent='⚠️ '+msg;b.style.display='block';}
-  else{b.style.display='none';}
+const b=document.getElementById(‘errBox’);
+if(msg){b.textContent=’⚠️ ’+msg;b.style.display=‘block’;}
+else{b.style.display=‘none’;}
 }
 
 async function safeFetch(url,opts){
-  const r=await fetch(url,opts);
-  if(!r.ok)throw new Error('HTTP '+r.status+' '+url);
-  return r.json();
+const r=await fetch(url,opts);
+if(!r.ok)throw new Error(’HTTP ‘+r.status+’ ’+url);
+return r.json();
 }
 
-async function askClaude(system, user) {
-  const res = await fetch('/api/quotes?market=claude', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      model: 'claude-sonnet-4-20250514',
-      max_tokens: 1500,
-      system: system,
-      messages: [{ role: 'user', content: user }],
-    }),
-  });
-  if (!res.ok) throw new Error('HTTP ' + res.status + ' /api/quotes?market=claude');
-  const d = await res.json();
-  return d.content.filter(b => b.type === 'text').map(b => b.text).join('\n');
+async function askClaude(sys,usr){
+const d=await safeFetch(’/api/quotes?market=claude’,{
+method:‘POST’,
+headers:{‘Content-Type’:‘application/json’},
+body:JSON.stringify({model:‘claude-haiku-4-5-20251001’,max_tokens:1500,system:sys,messages:[{role:‘user’,content:usr}]})
+});
+if(d.error)throw new Error(d.error.message||JSON.stringify(d.error));
+return d.content.filter(b=>b.type===‘text’).map(b=>b.text).join(’\n’);
 }
-
 
 function parseStock(list,code,isOTC){
-  const ck=isOTC&&list[0]&&list[0].SecuritiesCompanyCode!==undefined?'SecuritiesCompanyCode':'Code';
-  const row=list.find(r=>(r[ck]||'').trim()===code);
-  if(!row)return null;
-  const cl=isOTC?(row.Close!==undefined?'Close':'ClosingPrice'):'ClosingPrice';
-  const hk=isOTC?(row.High!==undefined?'High':'HighestPrice'):'HighestPrice';
-  const lk=isOTC?(row.Low!==undefined?'Low':'LowestPrice'):'LowestPrice';
-  const p=parseFloat((row[cl]||'').replace(/,/g,''));
-  if(isNaN(p)||p<=0)return null;
-  const c=parseFloat((row.Change||'0').replace(/,/g,''));
-  const prev=p-c,pct=prev>0?+((c/prev)*100).toFixed(2):0;
-  return{price:p,prevClose:+prev.toFixed(2),change:pct,
-    dayHigh:parseFloat((row[hk]||'0').replace(/,/g,''))||p,
-    dayLow:parseFloat((row[lk]||'0').replace(/,/g,''))||p};
+const ck=isOTC&&list[0]&&list[0].SecuritiesCompanyCode!==undefined?‘SecuritiesCompanyCode’:‘Code’;
+const row=list.find(r=>(r[ck]||’’).trim()===code);
+if(!row)return null;
+const cl=isOTC?(row.Close!==undefined?‘Close’:‘ClosingPrice’):‘ClosingPrice’;
+const hk=isOTC?(row.High!==undefined?‘High’:‘HighestPrice’):‘HighestPrice’;
+const lk=isOTC?(row.Low!==undefined?‘Low’:‘LowestPrice’):‘LowestPrice’;
+const p=parseFloat((row[cl]||’’).replace(/,/g,’’));
+if(isNaN(p)||p<=0)return null;
+const c=parseFloat((row.Change||‘0’).replace(/,/g,’’));
+const prev=p-c,pct=prev>0?+((c/prev)*100).toFixed(2):0;
+return{price:p,prevClose:+prev.toFixed(2),change:pct,
+dayHigh:parseFloat((row[hk]||‘0’).replace(/,/g,’’))||p,
+dayLow:parseFloat((row[lk]||‘0’).replace(/,/g,’’))||p};
 }
 
 function renderCard(s,d){
-  if(!d)return`<div class="card" style="display:flex;justify-content:space-between;align-items:center"><div><div class="stock-name">${s.name}</div><div class="stock-code">${s.code}·${s.sector}·${s.shares}股</div></div><div style="color:var(--text2);font-size:11px">無資料</div></div>`;
-  const{price:p,change:c,prevClose:pc,dayHigh:h,dayLow:l}=d;
-  const up=c>=0,cl=up?'up':'dn',dec=s.code==='00631L'?2:0;
-  let bc='var(--border)',tags='';
-  if(s.cost){const pp=(p-s.cost)/s.cost*100;
-    if(pp>=80){bc='rgba(255,107,53,.5)';tags+='<span class="tag tag-orange">⚡ 達80%獲利 建議賣出部分</span>';}
-    else if(pp>=50){bc='rgba(255,215,64,.4)';tags+='<span class="tag tag-yellow">💰 達50%獲利 考慮鎖利</span>';}
-  }
-  if(c>=5)tags+='<span class="tag tag-red">🔥 強勢拉升</span>';
-  else if(c<=-4){bc='rgba(255,61,113,.4)';tags+='<span class="tag tag-red">⚠️ 跌幅警示</span>';}
-  else if(c>=2)tags+='<span class="tag tag-green">↑ 偏強</span>';
-  else if(c>0)tags+='<span class="tag tag-blue">→ 小漲</span>';
-  const pnl=s.cost?(p-s.cost)*s.shares:null;
-  const pp2=s.cost?((p-s.cost)/s.cost*100).toFixed(1):null;
-  const ps=pnl!==null?(pnl>0?'+':'')+Math.round(pnl)+'('+pp2+'%)':'需補成本';
-  const pc2=pnl!==null?(pnl>0?'var(--red)':'var(--green)'):'var(--text)';
-  return`<div class="card" style="border-color:${bc}">
-    <div class="stock-header">
-      <div><div class="stock-name">${s.name}</div><div class="stock-code">${s.code}·${s.sector}·${s.shares}股</div></div>
-      <div><div class="stock-price ${cl}">${p.toFixed(dec)}</div><div class="stock-change ${cl}">${up?'▲':'▼'} ${Math.abs(c).toFixed(2)}%</div></div>
-    </div>
-    <div class="metrics">
-      <div class="metric"><div class="metric-label">昨收</div><div class="metric-value">${pc.toFixed(dec)}</div></div>
-      <div class="metric"><div class="metric-label">今日區間</div><div class="metric-value" style="font-size:10px">${l.toFixed(dec)}～${h.toFixed(dec)}</div></div>
-      <div class="metric"><div class="metric-label">損益</div><div class="metric-value" style="font-size:10px;color:${pc2}">${ps}</div></div>
-    </div>
-    ${tags?'<div class="tags">'+tags+'</div>':''}
+if(!d)return`<div class="card" style="display:flex;justify-content:space-between;align-items:center"><div><div class="stock-name">${s.name}</div><div class="stock-code">${s.code}·${s.sector}·${s.shares}股</div></div><div style="color:var(--text2);font-size:11px">無資料</div></div>`;
+const{price:p,change:c,prevClose:pc,dayHigh:h,dayLow:l}=d;
+const up=c>=0,cl=up?‘up’:‘dn’,dec=s.code===‘00631L’?2:0;
+let bc=‘var(–border)’,tags=’’;
+if(s.cost){const pp=(p-s.cost)/s.cost*100;
+if(pp>=80){bc=‘rgba(255,107,53,.5)’;tags+=’<span class="tag tag-orange">⚡ 達80%獲利 建議賣出部分</span>’;}
+else if(pp>=50){bc=‘rgba(255,215,64,.4)’;tags+=’<span class="tag tag-yellow">💰 達50%獲利 考慮鎖利</span>’;}
+}
+if(c>=5)tags+=’<span class="tag tag-red">🔥 強勢拉升</span>’;
+else if(c<=-4){bc=‘rgba(255,61,113,.4)’;tags+=’<span class="tag tag-red">⚠️ 跌幅警示</span>’;}
+else if(c>=2)tags+=’<span class="tag tag-green">↑ 偏強</span>’;
+else if(c>0)tags+=’<span class="tag tag-blue">→ 小漲</span>’;
+const pnl=s.cost?(p-s.cost)*s.shares:null;
+const pp2=s.cost?((p-s.cost)/s.cost*100).toFixed(1):null;
+const ps=pnl!==null?(pnl>0?’+’:’’)+Math.round(pnl)+’(’+pp2+’%)’:‘需補成本’;
+const pc2=pnl!==null?(pnl>0?‘var(–red)’:‘var(–green)’):‘var(–text)’;
+return`<div class="card" style="border-color:${bc}">
+<div class="stock-header">
+<div><div class="stock-name">${s.name}</div><div class="stock-code">${s.code}·${s.sector}·${s.shares}股</div></div>
+<div><div class="stock-price ${cl}">${p.toFixed(dec)}</div><div class="stock-change ${cl}">${up?‘▲’:‘▼’} ${Math.abs(c).toFixed(2)}%</div></div>
+</div>
+<div class="metrics">
+<div class="metric"><div class="metric-label">昨收</div><div class="metric-value">${pc.toFixed(dec)}</div></div>
+<div class="metric"><div class="metric-label">今日區間</div><div class="metric-value" style="font-size:10px">${l.toFixed(dec)}～${h.toFixed(dec)}</div></div>
+<div class="metric"><div class="metric-label">損益</div><div class="metric-value" style="font-size:10px;color:${pc2}">${ps}</div></div>
+</div>
+${tags?’<div class="tags">’+tags+’</div>’:’’}
+
   </div>`;
 }
 
 function updateSummary(){
-  let tv=0;
-  PORTFOLIO.forEach(s=>{const d=prices[s.code];if(d)tv+=d.price*s.shares;});
-  if(tv>0){
-    const pnl=tv-TOTAL_COST,r=((pnl/TOTAL_COST)*100).toFixed(1);
-    document.getElementById('pfValue').textContent=Math.round(tv).toLocaleString('zh-TW');
-    const pnlEl=document.getElementById('pfPnl');
-    pnlEl.textContent=(pnl>0?'+':'')+Math.round(pnl).toLocaleString('zh-TW');
-    pnlEl.style.color=pnl>=0?'var(--red)':'var(--green)';
-    const retEl=document.getElementById('pfReturn');
-    retEl.textContent=(r>0?'+':'')+r+'%';
-    retEl.style.color=pnl>=0?'var(--red)':'var(--green)';
-  }
+let tv=0;
+PORTFOLIO.forEach(s=>{const d=prices[s.code];if(d)tv+=d.price*s.shares;});
+if(tv>0){
+const pnl=tv-TOTAL_COST,r=((pnl/TOTAL_COST)*100).toFixed(1);
+document.getElementById(‘pfValue’).textContent=Math.round(tv).toLocaleString(‘zh-TW’);
+const pnlEl=document.getElementById(‘pfPnl’);
+pnlEl.textContent=(pnl>0?’+’:’’)+Math.round(pnl).toLocaleString(‘zh-TW’);
+pnlEl.style.color=pnl>=0?‘var(–red)’:‘var(–green)’;
+const retEl=document.getElementById(‘pfReturn’);
+retEl.textContent=(r>0?’+’:’’)+r+’%’;
+retEl.style.color=pnl>=0?‘var(–red)’:‘var(–green)’;
+}
 }
 
 async function refreshAll(){
-  if(busy)return;
-  busy=true;
-  const btn=document.getElementById('refreshBtn');
-  btn.disabled=true;
-  btn.innerHTML='<span class="spin"></span> 更新中...';
-  setStatus('loading','更新');
-  showErr('');
+if(busy)return;
+busy=true;
+const btn=document.getElementById(‘refreshBtn’);
+btn.disabled=true;
+btn.innerHTML=’<span class="spin"></span> 更新中…’;
+setStatus(‘loading’,‘更新’);
+showErr(’’);
 
-  try{
-    const [twseRes,tpexRes]=await Promise.all([
-      safeFetch('/api/quotes?market=twse'),
-      safeFetch('/api/quotes?market=tpex')
-    ]);
-    const twse=twseRes.data||[];
-    const tpex=tpexRes.data||[];
+try{
+const [twseRes,tpexRes]=await Promise.all([
+safeFetch(’/api/quotes?market=twse’),
+safeFetch(’/api/quotes?market=tpex’)
+]);
+const twse=twseRes.data||[];
+const tpex=tpexRes.data||[];
 
-    PORTFOLIO.forEach(s=>{
-      const d=parseStock(s.market==='tpex'?tpex:twse,s.code,s.market==='tpex');
-      if(d)prices[s.code]=d;
-    });
+```
+PORTFOLIO.forEach(s=>{
+  const d=parseStock(s.market==='tpex'?tpex:twse,s.code,s.market==='tpex');
+  if(d)prices[s.code]=d;
+});
 
-    const sm=twse[0];
-    if(sm&&sm.Date){
-      const y=parseInt(sm.Date.slice(0,3))+1911;
-      document.getElementById('dateLabel').textContent=y+'/'+sm.Date.slice(3,5)+'/'+sm.Date.slice(5,7)+' 收盤價';
-    } else {
-      document.getElementById('dateLabel').textContent='最新資料';
-    }
+const sm=twse[0];
+if(sm&&sm.Date){
+  const y=parseInt(sm.Date.slice(0,3))+1911;
+  document.getElementById('dateLabel').textContent=y+'/'+sm.Date.slice(3,5)+'/'+sm.Date.slice(5,7)+' 收盤價';
+} else {
+  document.getElementById('dateLabel').textContent='最新資料';
+}
 
-    document.getElementById('cathayCards').innerHTML=
-      PORTFOLIO.filter(s=>CATHAY.includes(s.code)).map(s=>renderCard(s,prices[s.code])).join('');
-    document.getElementById('esunCards').innerHTML=
-      PORTFOLIO.filter(s=>!CATHAY.includes(s.code)).map(s=>renderCard(s,prices[s.code])).join('');
+document.getElementById('cathayCards').innerHTML=
+  PORTFOLIO.filter(s=>CATHAY.includes(s.code)).map(s=>renderCard(s,prices[s.code])).join('');
+document.getElementById('esunCards').innerHTML=
+  PORTFOLIO.filter(s=>!CATHAY.includes(s.code)).map(s=>renderCard(s,prices[s.code])).join('');
 
-    updateSummary();
-    setStatus('live','LIVE');
+updateSummary();
+setStatus('live','LIVE');
 
-    if(Object.keys(prices).length===0){
-      showErr('今日無交易資料（可能為假日）');
-    }
-  } catch(e){
-    showErr(e.message);
-    setStatus('error','錯誤');
-    document.getElementById('dateLabel').textContent='更新失敗';
-  } finally {
-    busy=false;
-    btn.disabled=false;
-    btn.innerHTML='⟳ 重新整理報價';
-  }
+if(Object.keys(prices).length===0){
+  showErr('今日無交易資料（可能為假日）');
+}
+```
+
+} catch(e){
+showErr(e.message);
+setStatus(‘error’,‘錯誤’);
+document.getElementById(‘dateLabel’).textContent=‘更新失敗’;
+} finally {
+busy=false;
+btn.disabled=false;
+btn.innerHTML=‘⟳ 重新整理報價’;
+}
 }
 
 async function runScan(){
-  const btn=document.getElementById('scanBtn');
-  btn.disabled=true;
-  btn.innerHTML='<span class="spin"></span> AI 分析中...';
-  document.getElementById('scanResults').innerHTML='<div class="no-data">AI 掃描中...</div>';
-  try{
-    const t=await askClaude(
-      '你是台股AI選股助手，依照老王×朱家泓×杜金龍白皮書策略，回答繁體中文。',
-      '依照白皮書條件（20MA翻揚、量能放大2倍、型態突破、優先族群CoWoS/光通訊/HBM/CCL），給出3-5檔近期符合條件台股。只回傳JSON陣列：[{"name":"股名","code":"代號","score":85,"reasons":["原因"],"risk":"風險","sector":"族群"}]'
-    );
-    const m=t.match(/\[[\s\S]*?\]/);
-    const stocks=m?JSON.parse(m[0]):[];
-    document.getElementById('scanResults').innerHTML=stocks.length
-      ?stocks.map(s=>`<div class="scan-card"><div class="scan-header"><div><div class="scan-name">${s.name}</div><div class="scan-meta">${s.code}·${s.sector}</div></div><div class="scan-score">${s.score}/100</div></div><ul class="scan-reasons">${(s.reasons||[]).map(r=>'<li>'+r+'</li>').join('')}</ul><div style="margin-top:8px"><span class="tag tag-red">風險：${s.risk}</span></div></div>`).join('')
-      :'<div class="no-data">暫無推薦</div>';
-  } catch(e){
-    document.getElementById('scanResults').innerHTML=`<div class="no-data" style="color:var(--red)">錯誤：${e.message}</div>`;
-  } finally {
-    btn.disabled=false;
-    btn.innerHTML='🤖 AI 掃描選股';
-  }
+const btn=document.getElementById(‘scanBtn’);
+btn.disabled=true;
+btn.innerHTML=’<span class="spin"></span> AI 分析中…’;
+document.getElementById(‘scanResults’).innerHTML=’<div class="no-data">AI 掃描中…</div>’;
+try{
+const t=await askClaude(
+‘你是台股AI選股助手，依照老王×朱家泓×杜金龍白皮書策略，回答繁體中文。’,
+‘依照白皮書條件（20MA翻揚、量能放大2倍、型態突破、優先族群CoWoS/光通訊/HBM/CCL），給出3-5檔近期符合條件台股。只回傳JSON陣列：[{“name”:“股名”,“code”:“代號”,“score”:85,“reasons”:[“原因”],“risk”:“風險”,“sector”:“族群”}]’
+);
+const m=t.match(/[[\s\S]*?]/);
+const stocks=m?JSON.parse(m[0]):[];
+document.getElementById(‘scanResults’).innerHTML=stocks.length
+?stocks.map(s=>`<div class="scan-card"><div class="scan-header"><div><div class="scan-name">${s.name}</div><div class="scan-meta">${s.code}·${s.sector}</div></div><div class="scan-score">${s.score}/100</div></div><ul class="scan-reasons">${(s.reasons||[]).map(r=>'<li>'+r+'</li>').join('')}</ul><div style="margin-top:8px"><span class="tag tag-red">風險：${s.risk}</span></div></div>`).join(’’)
+:’<div class="no-data">暫無推薦</div>’;
+} catch(e){
+document.getElementById(‘scanResults’).innerHTML=`<div class="no-data" style="color:var(--red)">錯誤：${e.message}</div>`;
+} finally {
+btn.disabled=false;
+btn.innerHTML=‘🤖 AI 掃描選股’;
+}
 }
 
 async function runAnalysis(){
-  const btn=document.getElementById('analysisBtn');
-  btn.disabled=true;
-  btn.innerHTML='<span class="spin"></span> AI 分析中...';
-  document.getElementById('analysisResults').innerHTML='<div class="no-data">AI 分析中...</div>';
-  const h=PORTFOLIO.map(s=>{
-    const d=prices[s.code],dec=s.code==='00631L'?2:0;
-    return s.name+'('+s.code+') '+s.shares+'股，今收：'+(d?d.price.toFixed(dec):'未知')+'，漲跌：'+(d?(d.change>=0?'+':'')+d.change+'%':'未知')+'，成本：'+(s.cost||'未知');
-  }).join('\n');
-  try{
-    const t=await askClaude(
-      '你是專業台股分析師，依老王×朱家泓×杜金龍白皮書分析，回答繁體中文，簡潔精準。',
-      '分析以下庫存股（站上20MA進場，破20MA清倉，獲利50-80%考慮鎖利）：\n'+h+'\n\n回傳JSON陣列：[{"code":"代號","name":"名稱","signal":"持有/減碼/出場/觀察","reason":"原因","action":"建議"}]'
-    );
-    const m=t.match(/\[[\s\S]*?\]/);
-    const items=m?JSON.parse(m[0]):[];
-    const ss=sig=>{
-      if(sig&&sig.includes('出場'))return'background:rgba(255,61,113,.12);color:var(--red);border:1px solid rgba(255,61,113,.25)';
-      if(sig&&sig.includes('減碼'))return'background:rgba(255,107,53,.12);color:var(--accent2);border:1px solid rgba(255,107,53,.3)';
-      if(sig&&sig.includes('持有'))return'background:rgba(0,230,118,.12);color:var(--green);border:1px solid rgba(0,230,118,.25)';
-      return'background:rgba(0,229,255,.12);color:var(--accent);border:1px solid rgba(0,229,255,.25)';
-    };
-    document.getElementById('analysisResults').innerHTML=items.map(i=>{
-      const d=prices[i.code],dec=i.code==='00631L'?2:0;
-      return`<div class="analysis-card card"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px"><div><div style="font-size:15px;font-weight:700">${i.name}</div><div style="font-size:10px;color:var(--text2)">${i.code}${d?' · 現價 '+d.price.toFixed(dec):''}</div></div><span class="analysis-signal" style="${ss(i.signal)}">${i.signal}</span></div><div class="analysis-reason">${i.reason}</div><div class="analysis-action">💡 ${i.action}</div></div>`;
-    }).join('');
-  } catch(e){
-    document.getElementById('analysisResults').innerHTML=`<div class="no-data" style="color:var(--red)">錯誤：${e.message}</div>`;
-  } finally {
-    btn.disabled=false;
-    btn.innerHTML='🧠 AI 分析庫存操作建議';
-  }
+const btn=document.getElementById(‘analysisBtn’);
+btn.disabled=true;
+btn.innerHTML=’<span class="spin"></span> AI 分析中…’;
+document.getElementById(‘analysisResults’).innerHTML=’<div class="no-data">AI 分析中…</div>’;
+const h=PORTFOLIO.map(s=>{
+const d=prices[s.code],dec=s.code===‘00631L’?2:0;
+return s.name+’(’+s.code+’) ‘+s.shares+‘股，今收：’+(d?d.price.toFixed(dec):‘未知’)+’，漲跌：’+(d?(d.change>=0?’+’:’’)+d.change+’%’:‘未知’)+’，成本：’+(s.cost||‘未知’);
+}).join(’\n’);
+try{
+const t=await askClaude(
+‘你是專業台股分析師，依老王×朱家泓×杜金龍白皮書分析，回答繁體中文，簡潔精準。’,
+‘分析以下庫存股（站上20MA進場，破20MA清倉，獲利50-80%考慮鎖利）：\n’+h+’\n\n回傳JSON陣列：[{“code”:“代號”,“name”:“名稱”,“signal”:“持有/減碼/出場/觀察”,“reason”:“原因”,“action”:“建議”}]’
+);
+const m=t.match(/[[\s\S]*?]/);
+const items=m?JSON.parse(m[0]):[];
+const ss=sig=>{
+if(sig&&sig.includes(‘出場’))return’background:rgba(255,61,113,.12);color:var(–red);border:1px solid rgba(255,61,113,.25)’;
+if(sig&&sig.includes(‘減碼’))return’background:rgba(255,107,53,.12);color:var(–accent2);border:1px solid rgba(255,107,53,.3)’;
+if(sig&&sig.includes(‘持有’))return’background:rgba(0,230,118,.12);color:var(–green);border:1px solid rgba(0,230,118,.25)’;
+return’background:rgba(0,229,255,.12);color:var(–accent);border:1px solid rgba(0,229,255,.25)’;
+};
+document.getElementById(‘analysisResults’).innerHTML=items.map(i=>{
+const d=prices[i.code],dec=i.code===‘00631L’?2:0;
+return`<div class="analysis-card card"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px"><div><div style="font-size:15px;font-weight:700">${i.name}</div><div style="font-size:10px;color:var(--text2)">${i.code}${d?' · 現價 '+d.price.toFixed(dec):''}</div></div><span class="analysis-signal" style="${ss(i.signal)}">${i.signal}</span></div><div class="analysis-reason">${i.reason}</div><div class="analysis-action">💡 ${i.action}</div></div>`;
+}).join(’’);
+} catch(e){
+document.getElementById(‘analysisResults’).innerHTML=`<div class="no-data" style="color:var(--red)">錯誤：${e.message}</div>`;
+} finally {
+btn.disabled=false;
+btn.innerHTML=‘🧠 AI 分析庫存操作建議’;
+}
 }
 
 function switchTab(n){
-  document.querySelectorAll('.tab').forEach((t,i)=>t.classList.toggle('active',['portfolio','scan','analysis','rules'][i]===n));
-  document.querySelectorAll('.section').forEach(s=>s.classList.remove('active'));
-  document.getElementById('tab-'+n).classList.add('active');
+document.querySelectorAll(’.tab’).forEach((t,i)=>t.classList.toggle(‘active’,[‘portfolio’,‘scan’,‘analysis’,‘rules’][i]===n));
+document.querySelectorAll(’.section’).forEach(s=>s.classList.remove(‘active’));
+document.getElementById(‘tab-’+n).classList.add(‘active’);
 }
 
 // 啟動
 refreshAll();
 </script>
+
 </body>
 </html>
