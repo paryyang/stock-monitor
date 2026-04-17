@@ -83,7 +83,7 @@ body{font-family:'Noto Sans TC',sans-serif;background:var(--bg);color:var(--text
 <body>
 <div class="header">
   <div class="header-top">
-    <div><div class="logo">智策監控</div><div class="logo-sub" id="dateLabel">v2.1 載入中...</div></div>
+    <div><div class="logo">智策監控</div><div class="logo-sub" id="dateLabel">v2.2 載入中...</div></div>
     <div class="live-badge"><div class="live-dot" id="liveDot"></div><span id="liveLabel">LIVE</span></div>
   </div>
 </div>
@@ -284,32 +284,26 @@ setStatus(‘loading’,‘更新’);
 showErr(’’);
 
 try{
-// 先嘗試盤中即時 API
 const rtRes=await safeFetch(’/api/quotes?market=realtime’);
-let dateStr=‘即時報價’;
+let dateStr=‘載入完成’;
 
 ```
-if(rtRes.ok && rtRes.msgArray && rtRes.msgArray.length>0){
-  // 盤中模式
-  const msg=rtRes.msgArray;
-  PORTFOLIO.forEach(s=>{
-    const d=parseStockRT(msg,s.code);
-    if(d)prices[s.code]=d;
-  });
+if(rtRes.source==='realtime' && rtRes.msgArray && rtRes.msgArray.length>0){
+  PORTFOLIO.forEach(s=>{const d=parseStockRT(rtRes.msgArray,s.code);if(d)prices[s.code]=d;});
   dateStr='盤中即時';
+} else if(rtRes.source==='eod' && rtRes.data && rtRes.data.length>0){
+  const twse=rtRes.data;
+  PORTFOLIO.forEach(s=>{const d=parseStockEOD(twse,s.code);if(d)prices[s.code]=d;});
+  const sm=twse[0];
+  if(sm&&sm.Date){const y=parseInt(sm.Date.slice(0,3))+1911;dateStr=y+'/'+sm.Date.slice(3,5)+'/'+sm.Date.slice(5,7)+' 收盤價';}
 } else {
-  // 盤後模式（收盤或假日）
+  // 都失敗，直接打 twse
   const twseRes=await safeFetch('/api/quotes?market=twse');
   const twse=twseRes.data||[];
-  PORTFOLIO.forEach(s=>{
-    const d=parseStockEOD(twse,s.code);
-    if(d)prices[s.code]=d;
-  });
+  PORTFOLIO.forEach(s=>{const d=parseStockEOD(twse,s.code);if(d)prices[s.code]=d;});
   const sm=twse[0];
-  if(sm&&sm.Date){
-    const y=parseInt(sm.Date.slice(0,3))+1911;
-    dateStr=y+'/'+sm.Date.slice(3,5)+'/'+sm.Date.slice(5,7)+' 收盤價';
-  }
+  if(sm&&sm.Date){const y=parseInt(sm.Date.slice(0,3))+1911;dateStr=y+'/'+sm.Date.slice(3,5)+'/'+sm.Date.slice(5,7)+' 收盤價';}
+  else if(twse.length===0){showErr('今日無交易資料（假日或盤前）');}
 }
 document.getElementById('dateLabel').textContent=dateStr;
 
